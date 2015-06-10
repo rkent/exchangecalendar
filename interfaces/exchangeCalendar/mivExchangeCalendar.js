@@ -340,7 +340,7 @@ try{
 	this.endDate = null;
 
 	this.syncState = null;
-	this.syncStatePseudoTask=null;
+	this.syncStateInbox=null;
 	this.syncInboxState = null;
 	this._weAreSyncing = false;
 	this.firstSyncDone = false;
@@ -655,7 +655,9 @@ calExchangeCalendar.prototype = {
 				this.syncExchangeToOfflineCache();
 			}*/ // Not necessary anymore as it will follow the cache by default.
 		}
-
+		
+		//Enable cache on startup :)
+		this.prefs.setBoolPref("useOfflineCache",true);
 	},
 
 	set readOnly(aValue)
@@ -850,19 +852,20 @@ calExchangeCalendar.prototype = {
 			this.useOfflineCache = aValue;
 		    if (this.debug) this.logInfo("setProperty: useOfflineCache = " + this.useOfflineCache + "  offlineCacheDB  "  + this.offlineCacheDB);  
 
-			if (!this.useOfflineCache) {
+		    if (!aValue) {
 				if (this.offlineCacheDB) {
 					try {
-						if (this.offlineCacheDB) this.offlineCacheDB.close(); 
-						this.offlineCacheDB = null;   
-					} catch(exc) {
- 					    if (this.debug) this.logInfo("setProperty: Can't Modify Cache status");  
-					}
-				} 
-				if (this.dbFile) this.dbFile.remove(true); 
-				this.offlineCacheDB = null;  
-				// Remove the offline cache database when we delete the calendar. 
-			} 
+						 if (this.offlineCacheDB) this.offlineCacheDB.close();
+                                                 this.offlineCacheDB = null;
+                                         } catch(exc) {}
+                                }
+ 
+                                // Remove the offline cache database when we delete the calendar.
+                            if (this.dbFile) {
+                                    this.dbFile.remove(true);
+                                     this.offlineCacheDB = null;
+                            }
+                    } 
 			return;
 		}
 
@@ -2188,11 +2191,12 @@ calExchangeCalendar.prototype = {
 	getItems: function _getItems(aItemFilter, aCount,
                                     aRangeStart, aRangeEnd, aListener) 
 	{
-		if (this.debug) this.logInfo("getItems 0: aListener:"+aListener);
-		if (this.debug) this.logInfo("getItems 1: aCount:"+aCount);
+		if (this.debug) this.logInfo("getItems 0: " + "  aItemFilter, " + aItemFilter + "  aCount, " + aCount 
+                                   								 + " aRangeStart,  " + aRangeStart + " aRangeEnd, "+  aRangeEnd 
+                                   								 +  " aListener , " + aListener ); 
 
-		//dump("getItems name:"+this.name+", aListener:"+aListener);
-		//dump(", aCount:"+aCount);
+	    //Start poller if not already runnning  this may resolve suspend issue
+		this.startCalendarPoller(); 
 
 		if (aRangeStart)  { 
 			if (this.debug) this.logInfo("getItems 2: aRangeStart:"+aRangeStart.toString()); 
@@ -2304,7 +2308,7 @@ calExchangeCalendar.prototype = {
 			//dump("!this.firstSyncDone\n");
 			this.getItemsSyncQueue.push({itemFilter: aItemFilter, 
 						count: aCount,
-                                    		rangeStart: aRangeStart, 
+                		rangeStart: aRangeStart, 
 						rangeEnd: aRangeEnd,
 						listener: aListener});
 			return;
@@ -2465,9 +2469,8 @@ calExchangeCalendar.prototype = {
 				dateChanged = true;
 				endChanged = true;
 			}
-		}
-
-
+		} 
+		
 		if (aRangeStart)  { if (this.debug) this.logInfo("getItems 5a: aRangeStart:"+aRangeStart.toString()); }
 		if (aRangeEnd) { if (this.debug) this.logInfo("getItems 5b: aRangeEnd:"+aRangeEnd.toString()); }
 
@@ -2510,8 +2513,7 @@ calExchangeCalendar.prototype = {
 				else {
 					startChanged = true;
 				}
-			}
-
+			} 
 
 			if ((this.offlineEndDate) && (aRangeEnd.compare(this.offlineEndDate) > 0)) {
 				if (this.debug) this.logInfo("RangeEnd is after offlineCache end.");
@@ -2528,8 +2530,9 @@ calExchangeCalendar.prototype = {
 				}
 			}
 
-		} 
-
+		}  
+		
+		//Update calendar/task view 
 		this.getItemsFromMemoryCache(aRangeStart, aRangeEnd, aItemFilter, aListener, this.exporting);
 
  		if (this.OnlyShowAvailability) {
@@ -2556,8 +2559,7 @@ calExchangeCalendar.prototype = {
 				this.checkInbox();
 			}
 		}
-*/
-
+*/ 
 		// 2013-11-19 Going to request getitems period from exchange.
 		if (!dateChanged) {
 			if (this.debug) this.logInfo("No dateChanged. Not going to request items from server.");
@@ -2568,8 +2570,7 @@ calExchangeCalendar.prototype = {
 			if (this.debug) this.logInfo("We are offline. Not going to request items from server.");
 			return;
 		}
-
-
+ 
 		// 2013-11-19 Going to request getitems period from exchange.
 /*		if ((wantEvents) && (this.supportsEvents)) {
 			this.requestPeriod(aRangeStart, aRangeEnd, aItemFilter, aCount, false);
@@ -2598,40 +2599,39 @@ calExchangeCalendar.prototype = {
 			}
 		}
 	
-		if ((wantTodos) && (this.supportsTasks)) {
+		//Request server when calendar date changed  .
+		if ((wantTodos) && (this.supportsTasks) && (startChanged || endChanged )) {
 			if (this.debug) this.logInfo("Requesting tasks from exchange server.");
-  	    		var self = this;
-			this.addToQueue( erFindTaskItemsRequest, 
-				{user: this.user, 
-				 mailbox: this.mailbox,
-				 serverUrl: this.serverUrl,
-				 folderBase: this.folderBase,
-				 itemFilter: aItemFilter,
-				 folderID: this.folderID,
-				 changeKey: this.changeKey,
-				 actionStart: Date.now() }, 
-				function(erFindTaskItemsRequest, aIds) { self.findTaskItemsOK(erFindTaskItemsRequest, aIds);}, 
-				function(erFindTaskItemsRequest, aCode, aMsg) { self.findTaskItemsError(erFindTaskItemsRequest, aCode, aMsg);},
-				null);
-		}
-
-		if ((wantTodos) && (this.supportsTasks)) {
+    			var self = this;
+    			this.addToQueue( erFindTaskItemsRequest, 
+					{user: this.user, 
+					 mailbox: this.mailbox,
+					 serverUrl: this.serverUrl,
+					 folderBase: this.folderBase,
+					 itemFilter: aItemFilter,
+					 folderID: this.folderID,
+					 changeKey: this.changeKey,
+					 actionStart: Date.now() }, 
+					function(erFindTaskItemsRequest, aIds) { self.findTaskItemsOK(erFindTaskItemsRequest, aIds);}, 
+					function(erFindTaskItemsRequest, aCode, aMsg) { self.findTaskItemsError(erFindTaskItemsRequest, aCode, aMsg);},
+					null);
+			 
 			if (this.debug) this.logInfo("Requesting followup tasks from exchange server.");
   	    		var self = this;
-			this.addToQueue( erFindFollowupItemsRequest, 
-				{user: this.user, 
-				 mailbox: this.mailbox,
-				 serverUrl: this.serverUrl,
-				 folderBase: "inbox",
-				 itemFilter: aItemFilter,
-				 folderID: this.folderID,
-				 changeKey: this.changeKey,
-				 actionStart: Date.now() }, 
-				function(erFindFollowupItemsRequest, aIds) { self.findFollowupTaskItemsOK(erFindFollowupItemsRequest, aIds);}, 
-				function(erFindFollowupItemsRequest, aCode, aMsg) { self.findFollowupTaskItemsError(erFindFollowupItemsRequest, aCode, aMsg);},
-				null);
-		}
-	    },
+  	    		this.addToQueue( erFindFollowupItemsRequest, 
+					{user: this.user, 
+					 mailbox: this.mailbox,
+					 serverUrl: this.serverUrl,
+					 folderBase: "inbox",
+					 itemFilter: aItemFilter,
+					 folderID: this.folderID,
+					 changeKey: this.changeKey,
+					 actionStart: Date.now() }, 
+					function(erFindFollowupItemsRequest, aIds) { self.findFollowupTaskItemsOK(erFindFollowupItemsRequest, aIds);}, 
+					function(erFindFollowupItemsRequest, aCode, aMsg) { self.findFollowupTaskItemsError(erFindFollowupItemsRequest, aCode, aMsg);},
+					null); 
+		} 
+    },
 
 	getItemsFromMemoryCache: function _getItemsFromMemoryCache(aRangeStart, aRangeEnd, aItemFilter, aListener, aExporting)
 	{
@@ -2697,8 +2697,7 @@ calExchangeCalendar.prototype = {
 					}
 				}
 			}
-		}
-
+		} 
 
 		if (this.debug) this.logInfo("We got '"+events.length+"' events and  '"+tasks.length+"'  tasks from memory cache.");
 		if (aListener) {
@@ -2725,9 +2724,7 @@ calExchangeCalendar.prototype = {
 			Cr.NS_OK,
 			Ci.calIOperationListener.GET,
 			null, null);
-		}
-
-
+		}  
 	},
 
 	requestPeriod: function _requestPeriod(aStartDate, aEndDate, aItemFilter, aCount, findReverse, aUID)
@@ -2777,7 +2774,7 @@ calExchangeCalendar.prototype = {
 			}
 		}
 
-       		var self = this;
+		var self = this;
 		var doStop = false;
 		var stopNext = false;
 
@@ -2854,13 +2851,8 @@ calExchangeCalendar.prototype = {
 				if (this.debug) this.logInfo("No syncState yet. So no refresh.");
 			}
 			return;
-		}
-
-		if (!this.isInitialized) {	
-			if (this.debug) this.logInfo("Not initialized yet. So no refresh.");
-			return;
-		}
-
+		} 
+	
 		if (this.isOffline) {
 			if (this.debug) this.logInfo("We are offline. So no refresh.");
 			return;
@@ -2870,11 +2862,17 @@ calExchangeCalendar.prototype = {
 			if (this.debug) this.logInfo("We are disabled. So no refresh.");
 			return;
 		}
+		
+		if (!this.isInitialized) {	
+			if (this.debug) this.logInfo("Not initialized yet. So no refresh.");
+			return;
+		} 
 
 		//if (this.debug) this.logInfo("Refresh. We start a sync.");
 		//var self = this;
 
 		if (this.OnlyShowAvailability) {
+			if (!this.lastValidRangeStart) this.lastValidRangeStart = aRangeStart.clone(); 
 			this.getOnlyFreeBusyInformation(this.lastValidRangeStart, this.lastValidRangeEnd);
 		}		
 		else {
@@ -3178,30 +3176,12 @@ calExchangeCalendar.prototype = {
 		}
 
 		if (this.firstrun) {
-			this.firstrun = false;
-
-			getFreeBusyService().addProvider(this);
+			this.firstrun = false; 
 
 			// The first thing we want to do is check the folderbase and folderpath for their id & changekey.
 			// It might have changed between restarts.
 			this.checkFolderPath();
- 			if (this.syncState != "") {
-				switch(this.folderBase){
-				case "tasks":
-					this.syncState = this.globalFunctions.safeGetCharPref(this.prefs,"syncState", "");
-					this.syncStatePseudoTask = this.globalFunctions.safeGetCharPref(this.prefs,"syncStatePseudoTask", "");
-					this.saveToFile("syncState.txt", this.syncState);
-					this.saveToFile("syncStatePseudoTask.txt",this.syncStatePseudoTask); 
-					this.prefs.deleteBranch("syncStatePseudoTask");
-					this.prefs.deleteBranch("syncState");
-					break;
-				default:
-					this.syncState = this.globalFunctions.safeGetCharPref(this.prefs,"syncState", "");
- 					this.saveToFile("syncState.txt", this.syncState);
- 					this.prefs.deleteBranch("syncState"); 
-				}					
-			}
-
+ 		 
 /* Disabled as on startup we do not wish to use old syncstate until we get some offline caching implemented for this (2013-12-20)
 			this.syncInboxState = this.globalFunctions.safeGetCharPref(this.prefs,"syncInboxState", "");
 			if (this.syncInboxState != "") {
@@ -3210,15 +3190,13 @@ calExchangeCalendar.prototype = {
 			}
 */ 
 			if (this.useOfflineCache) {
-				switch(this.folderBase){
-				case "tasks":
-					this.syncState = this.loadFromFile("syncState.txt");
-					this.syncStatePseudoTask = this.loadFromFile("syncStatePseudoTask.txt");
-					break;
-				default:
-					this.syncState = this.loadFromFile("syncState.txt");
-				}					
+  					this.syncStateInbox = this.loadFromFile("syncStateInbox.txt"); 
+  					this.prefs.deleteBranch("syncStateInbox");
+
+ 					this.syncState = this.loadFromFile("syncState.txt"); 
+ 					this.prefs.deleteBranch("syncState");  
 			}
+			
 //			this.syncInboxState = this.loadFromFile("syncInboxState.txt");
 
 			this.getSyncState();
@@ -3235,16 +3213,16 @@ calExchangeCalendar.prototype = {
 			}
 
 			//dump(this.name+": Going to load testdata ("+this.id+")\n");
-			var testData = this.loadFromFile("testitem");
-			if (testData) {
-				var testJSON = xml2json.newJSON();
-				xml2json.parseXML(testJSON, testData);
-				var tmpItems = [testJSON[telements][0]];
-try{
-				this.updateCalendar(null, tmpItems, true, false);
-}catch(err){dump(this.name+": Testdata error:"+err+"\n");}
-				dump("Loaded testdata\n");
-			}
+//			var testData = this.loadFromFile("testitem");
+//			if (testData) {
+//				var testJSON = xml2json.newJSON();
+//				xml2json.parseXML(testJSON, testData);
+//				var tmpItems = [testJSON[telements][0]];
+//try{
+//				this.updateCalendar(null, tmpItems, true, false);
+//}catch(err){dump(this.name+": Testdata error:"+err+"\n");}
+//				dump("Loaded testdata\n");
+//			}
 		}
 		return true;
 
@@ -4120,8 +4098,8 @@ try{
 		//this.prefs.deleteBranch("syncState");
 		this.removeFile("syncState.txt");
 		if(this.folderBase=="tasks"){
-			this.syncStatePseudoTask = null;  
-			this.removeFile("syncStatePseudoTask.txt"); 
+			this.syncStateInbox = null;  
+			this.removeFile("syncStateInbox.txt"); 
 		}
 		this.weAreSyncing = false;
 		this.firstSyncDone = false;
@@ -5931,8 +5909,7 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 				newIdList.push(item);
 			}
 		}
-//dump("     findCalendarItemsOK: newIdList.length:"+newIdList.length+"\n");
-
+ 
 		// Remove Occurrence/Exception items in the lists which we already have in memory
 		var newOccurrenceList = new Array();
 //dump("     findCalendarItemsOK: aOccurrences.length:"+aOccurrences.length+"\n");
@@ -5969,14 +5946,17 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 	startCalendarPoller: function _startCalendarPoller()
 	{
 	        var self = this;
-		var timerCallback = {
+	        var timerCallback = {
 			notify: function setTimeout_notify() {
-				self.refresh();
-			}
-		};
-
-		if (!this.calendarPoller) {
-
+						self.refresh();
+	        		}
+	        };
+		
+		if( 60 > this.globalFunctions.safeGetIntPref(this.prefs, "ecCalendarPollInterval",0) ){  
+			this.prefs.setIntPref("ecCalendarPollInterval",60);
+		}
+		
+ 		if (!this.calendarPoller) { 
 			// start the calendar poller
 			this.calendarPoller = Cc["@mozilla.org/timer;1"]
 					.createInstance(Ci.nsITimer);
@@ -6065,7 +6045,7 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 	
 	findTaskItemsOK: function _findTaskItemsOK(erFindTaskItemsRequest, aIds)
 	{
-//		if (this.debug) this.logInfo("findTaskItemsOK: aIds.length:"+aIds.length);
+ 		if (this.debug) this.logInfo("findTaskItemsOK: aIds.length:"+aIds.length);
 		this.saveCredentials(erFindTaskItemsRequest.argument);
 		this.notConnected = false;
 
@@ -6157,13 +6137,11 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 					this.removeFromOfflineCache({ id: aItemErrors[i], title:"from offline"});
 				}
 				i++;
-			}
-			
+			} 
 		}
 
 		if (aItems.length == 0) {
-			this.processItemSyncQueue();
-
+			this.processItemSyncQueue(); 
 			return;
 		}
 
@@ -6174,14 +6152,16 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 				if (this.debug) this.logInfo("getTaskItemsOK: We have a syncState to save.");
 				//this.prefs.setCharPref("syncState", erGetItemsRequest.argument.syncState);
 				
-				switch(erSyncFolderItemsRequest.folderBase){
+				switch(erGetItemsRequest.argument.folderBase){
 				case "inbox":
-					this.syncStatePseudoTask = erGetItemsRequest.argument.syncState;
-					this.saveToFile("syncStatePseudoTask.txt", erGetItemsRequest.argument.syncState);
+					this.syncStateInbox = erGetItemsRequest.argument.syncState;
+					this.saveToFile("syncStateInbox.txt", erGetItemsRequest.argument.syncState);
+					this.prefs.setCharPref("syncStateInbox", erGetItemsRequest.argument.syncState); 
 					break;
 				default:
 					this.syncState = erGetItemsRequest.argument.syncState;
 					this.saveToFile("syncState.txt", erGetItemsRequest.argument.syncState);  
+					this.prefs.setCharPref("syncState", erGetItemsRequest.argument.syncState); 
 				}		 
 		}
 
@@ -7729,10 +7709,8 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 					}
 				}
 			}
-		}
-		  
-		//this.notifyTheObservers("onModifyItem", [aNewItem, aOldItem]);
-
+		} 
+		//this.notifyTheObservers("onModifyItem", [aNewItem, aOldItem]); 
         	this.notifyOperationComplete(aListener,
         	                             result,
         	                             Ci.calIOperationListener.MODIFY,
@@ -7797,9 +7775,8 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 
 	getCalendarItemsOK: function _getCalendarItemsOK(erGetItemsRequest, aItems, aItemErrors)
 	{
-//		if (this.debug) this.logInfo("getCalendarItemsOK: aItems.length="+aItems.length);
-//dump("  getCalendarItemsOK:"+aItems.length+"\n");
-		this.saveCredentials(erGetItemsRequest.argument);
+ 		if (this.debug) this.logInfo("getCalendarItemsOK: aItems.length="+aItems.length);
+ 		this.saveCredentials(erGetItemsRequest.argument);
 		this.notConnected = false;
 
 		if ((aItemErrors) && (aItemErrors.length > 0)) {
@@ -7876,17 +7853,17 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 	},
 
 	getSyncState: function _getSyncState()
-	{
+	{ 
 		if (this.isOffline) return;
 
 		if (!this.weAreSyncing) {
 			// We do not yet have a syncState. Get it first.
-			if (this.debug) this.logInfo("Creating erSyncFolderItemsRequest");
+			if (this.debug) this.logInfo("getSyncState: Creating erSyncFolderItemsRequest");
 			var self = this;
 			this.weAreSyncing = true;
 			switch(this.folderBase){
 			case "tasks":
-			    this.logInfo("syncFolderItemsOK, this.syncStatePseudoTask: " +  this.syncStatePseudoTask ); 
+			    this.logInfo("getSyncState: this.syncStateInbox - " +  this.syncStateInbox ); 
 
 				this.addToQueue(erSyncFolderItemsRequest,
 						{user: this.user, 
@@ -7895,14 +7872,14 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 					 folderBase: "inbox",
 					 folderID: null,
 					 changeKey: null,
-					 syncState: this.syncStatePseudoTask,
+					 syncState: this.syncStateInbox,
 					 actionStart: Date.now() },
 					function(erSyncFolderItemsRequest, creations, updates, deletions, syncState) { self.syncFolderItemsOK(erSyncFolderItemsRequest, creations, updates, deletions, syncState);}, 
 					function(erSyncFolderItemsRequest, aCode, aMsg) { self.syncFolderItemsError(erSyncFolderItemsRequest, aCode, aMsg);},
 					null);  
 				//Donot  break because we neet to call below section by default..
 				default:
-				    this.logInfo("syncFolderItemsOK,  this.syncState: "  + this.syncState); 
+				    this.logInfo("getSyncState: this.syncState - "  + this.syncState); 
 
 					this.addToQueue(erSyncFolderItemsRequest,
 							{user: this.user, 
@@ -7919,7 +7896,7 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 			} 
 		}
 		else {
-			if (this.debug) this.logInfo("not creating erSyncFolderItemsRequest because we are allready syncing");
+			if (this.debug) this.logInfo("getSyncState: not creating erSyncFolderItemsRequest because we are allready syncing");
 		}
 	},
 
@@ -7936,17 +7913,22 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 
 		if (syncState) {
 			
-			if ((this.syncState) && (syncState == this.syncState || syncState == this.syncStatePseudoTask )) {
+			if ((this.syncState) && (syncState == this.syncState || syncState == this.syncStateInbox )) {
 				this.logError("Same syncState received.");
 			}
+			
  			// This was the first time. we now save the syncState;
 			if( erSyncFolderItemsRequest.folderBase == "inbox" )	{
-				this.syncStatePseudoTask = syncState;  
-				this.saveToFile("syncStatePseudoTask.txt", syncState);
+				this.syncStateInbox = syncState;  
+				this.prefs.deleteBranch("syncStateInbox");
+				this.prefs.setCharPref("syncStateInbox",syncState);
+				this.saveToFile("syncStateInbox.txt", syncState);
 			}
 			else{
 				this.syncState = syncState; 
-				this.saveToFile("syncState.txt", syncState);
+				this.prefs.deleteBranch("syncState"); 
+				this.prefs.setCharPref("syncState",syncState); 
+				this.saveToFile("syncState.txt", syncState); 
 			}
 			this.weAreSyncing = false; 
 		}
@@ -7957,7 +7939,21 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 		for each(var creation in creations) { changes.push(creation); }
 		for each(var update in updates) { changes.push(update); }
 		if (changes.length > 0) {
-			this.addToQueue( erGetItemsRequest, 
+  			switch(erSyncFolderItemsRequest.folderBase){
+			case "task": 
+				this.findTaskItemsOK(erSyncFolderItemsRequest,changes);
+				break;
+			case "calendar":
+				this.findCalendarItemsOK(erSyncFolderItemsRequest,changes,[]);
+				break;
+			case "inbox":
+				this.findFollowupTaskItemsOK(erSyncFolderItemsRequest,changes);
+				break;
+			default: 
+				this.logError("Changes could not be made."); 
+			}
+			
+/*			this.addToQueue( erGetItemsRequest, 
 				{user: this.user, 
 				 mailbox: this.mailbox,
 				 folderBase: this.folderBase,
@@ -7971,6 +7967,7 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 				function(erGetItemsRequest, aIds, aItemErrors) { self.getTaskItemsOK(erGetItemsRequest, aIds, aItemErrors);}, 
 				function(erGetItemsRequest, aCode, aMsg) { self.getTaskItemsError(erGetItemsRequest, aCode, aMsg);},
 				null);
+				*/
 		}
 
 		if (!syncState) return;
@@ -7997,21 +7994,7 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 					this.itemCacheById[item.id] = null;
 					delete this.itemCacheById[item.id];*/
 					this.removeItemFromCache(item);
-					this.removeFromOfflineCache(item);
-					if ( this.deleteCancelledInvitation &&  item.isCancelled &&  item.isInvitation   )  
-					{
-						if (this.debug) this.logInfo("syncFolderItemsOK 2: " +  "Found item deleted : " +  item.title  + " - going to delete from calendar" ); 
-						this.deleteItem(item);		
-						this.removeFromMeetingRequestCache(item); 
-						if ( item.isRemoved )
-					    {
-							if (this.debug) this.logInfo("syncFolderItemsOK 2: " +  "Deleted event " + item.title );
-					    }
-						else
-						{
-							if (this.debug) this.logInfo("syncFolderItemsOK 2: " +  "Something wrong! not deleted from exchange calendar - " + item.title );
-						}
-					}
+					this.removeFromOfflineCache(item); 
 				}
 				else {
 					// Find matching master record.
@@ -8052,8 +8035,7 @@ dump("\n== removed ==:"+aCalendarEvent.toString()+"\n");
 		if (this.getItemSyncQueue.length > 0) {
 			if (this.debug) this.logInfo("We have "+this.getItemSyncQueue.length+" items in this.getItemSyncQueue");
 			this.processItemSyncQueue();
-		}
- 		getSyncState();
+		} 
 	},
 
 	syncFolderItemsError: function _syncFolderItemsError(erSyncFolderItemsRequest, aCode, aMsg)
@@ -8598,6 +8580,7 @@ else {
 
 		// Now we can initialize.
 		this.syncState = null;
+		this.syncStateInbox = null;
 		this.weAreSyncing = false;
 		
 		// Remove all items in cache from calendar.
@@ -9050,7 +9033,7 @@ else {
 		this.createOfflineCacheDB();
 
 		if ((oldValue != aValue) && (aValue)) {
-			 this.syncExchangeToOfflineCache();
+			 //this.syncExchangeToOfflineCache();
 		}
 	},
 
@@ -10510,7 +10493,7 @@ function ecObserver(inCalendar)
 				aCalendar.removeFile("syncState.txt");
 				aCalendar.removeFile("syncInboxState.txt");
 				aCalendar.removeFile("folderProperties.txt");
-				aCalendar.removeFile("syncStatePseudoTask.txt");
+				aCalendar.removeFile("syncStateInbox.txt");
 				self.unregister();
 			}
 		},
