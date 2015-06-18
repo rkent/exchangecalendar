@@ -197,10 +197,15 @@ function rtews(identity){
 
 	   this.globalFunctions = Cc["@1st-setup.nl/global/functions;1"]
 		             				.getService(Ci.mivFunctions);   
-	   this.prefs	 =	 Cc["@mozilla.org/preferences-service;1"]
-	                   				.getService(Ci.nsIPrefBranch); 
-	   this.pollOffset  = 6000;//time for getevents 
-
+	   this.prefs = identity.prefs ;
+	   
+	   if( this.prefs ){
+		   this.pollOffset = this.globalFunctions.safeGetIntPref(this.prefs, "syncMailItems.Interval" ,15000);//time for getevents  
+	   }
+	   else{
+		   this.prefs = null;
+ 		   this.pollOffset = 15000;//time for getevents 
+	   }
 }
 
 rtews.prototype = {  
@@ -225,9 +230,9 @@ rtews.prototype = {
 								null);  
 	},
 	
-	findFoldersOK:  function _findFoldersOK(erFindInboxFolderRequest, folders){
+	findFoldersOK:  function _findFoldersOK(erFindInboxFolderRequest, afolders){
 		//this.globalFunctions.LOG("findFoldersOK: " + JSON.stringify(folders));
- 		this.processFolders(folders); 
+ 		this.processFolders(afolders); 
 		var folders = this.getFoldersByIdentity(this.identity);  
  		if (folders.length > 0) {
 			   this.subscribe(folders); 
@@ -286,6 +291,9 @@ rtews.prototype = {
 	poll: function _poll() {
 	    var self = this;
 	    this.Running = false; 
+	    
+		this.globalFunctions.LOG("rtews: Syncing Tags with this.pollOffset " + this.pollOffset );
+		
 	    this.pollInterval = setInterval(function() { 
 			if (self.session == null) {
 		        return;
@@ -306,17 +314,18 @@ rtews.prototype = {
 	getItemsOK: function _getItemsOK(erGetItemsRequest, aItems, aItemErrors){ 
 		this.globalFunctions.LOG("getItemsOK: Received items for update: " + aItems.length); 
 	 	if( aItems.length > 0 ){
-		function getItem(aItem){ 
-		   	let id = xml2json.getAttributeByTag(aItem,'t:ItemId','Id'); 
-		   	let changeKey = xml2json.getAttributeByTag(aItem,'t:ItemId','ChangeKey');  
-	        return { "Id" : id , "ChangeKey": changeKey, };
-		}  
-		
-		function getParentItem(aItem){ 
-		   	let id = xml2json.getAttributeByTag(aItem,'t:ParentFolderId','Id'); 
-		   	let changeKey = xml2json.getAttributeByTag(aItem,'t:ParentFolderId','ChangeKey');  
-	        return { "Id" : id , "ChangeKey": changeKey, };
-		}  
+		 
+	 		getItem=function(aItem){ 
+			   	let id = xml2json.getAttributeByTag(aItem,'t:ItemId','Id'); 
+			   	let changeKey = xml2json.getAttributeByTag(aItem,'t:ItemId','ChangeKey');  
+		        return { "Id" : id , "ChangeKey": changeKey, };
+			}  
+			
+	 		getParentItem=function(aItem){ 
+			   	let id = xml2json.getAttributeByTag(aItem,'t:ParentFolderId','Id'); 
+			   	let changeKey = xml2json.getAttributeByTag(aItem,'t:ParentFolderId','ChangeKey');  
+		        return { "Id" : id , "ChangeKey": changeKey, };
+			}  
 		
 		for(var item = 0 ; item < aItems.length ; item++ ){ 
 	 		var itemId = getItem(aItems[item]);  
@@ -473,7 +482,7 @@ rtews.prototype = {
 	  				newItemIds = itemIds.splice(0);
 	  		    }
 				
-				function getItem(aItem){ 
+				getItem = function(aItem){ 
 				   	let id = aItem.getAttribute('Id'); 
 					let changeKey = aItem.getAttribute('ChangeKey');  
 					return { "Id" : id , "ChangeKey": changeKey, };
@@ -626,8 +635,8 @@ rtews.prototype = {
 	
 	        if (!folder) {
 	            continue;
-	        }
-	     
+	        } 
+	        
 	        var tmpObject = new erFindItemsRequest(
 					{user: this.user, 
 					mailbox: this.mailbox,
@@ -635,23 +644,20 @@ rtews.prototype = {
 					actionStart: Date.now(),
 					folderID : folder.id ,
 					messageId: messageId, }, 
-					function(erFindItemsRequest, aIds) { findItemsOK(erFindItemsRequest, aIds);}, 
-					function(erFindItemsRequest, aCode, aMsg) {  findItemsError(erFindItemsRequest, aCode, aMsg);},
-					null);  
-	        
-	        function findItemsOK(erFindItemsRequest, aIds){
-	        	that.globalFunctions.LOG("findItemsOK: Fount items: " + aIds.length ); 
-	        	if( aIds.length > 0 ){  
-	    			   that.getAndUpdateItems(aIds); 
-	         	}
-	        	else{
-	        		that.globalFunctions.LOG("findItemsOK: no item found for the message id"); 
-	        	}
-	        } 
-	        
-	        function findItemsError(erFindItemsRequest, aCode, aMsg){
-	            that.globalFunctions.LOG("findItemsError:  aCode:" + aCode + " aMsg: " +  aMsg ); 
-	        }  
+					function(erFindItemsRequest, aIds) {
+								//findItemOk Callback 
+					        	that.globalFunctions.LOG("findItemsOK: Fount items: " + aIds.length ); 
+					        	if( aIds.length > 0 ){  
+					    			   that.getAndUpdateItems(aIds); 
+					         	}
+					        	else{
+					        		that.globalFunctions.LOG("findItemsOK: no item found for the message id"); 
+					        	} 
+					}, 
+					function(erFindItemsRequest, aCode, aMsg) { 
+								that.globalFunctions.LOG("findItemsError:  aCode:" + aCode + " aMsg: " +  aMsg );  
+			        },
+					null);   
 	    } 
 	},   
 	/*
@@ -669,17 +675,6 @@ rtews.prototype = {
 	        return;
 	    }
 	    
-	    var tmpObject = new erFindItemsRequest(
-				{user: this.user, 
-				mailbox: this.mailbox,
-				serverUrl: this.serverUrl, 
-				actionStart: Date.now(),
-				folderID : folder.id ,
-				messageId: messageId, }, 
-				function(erFindItemsRequest, aIds) {  findItemsOK(erFindItemsRequest, aIds);}, 
-				function(erFindItemsRequest, aCode, aMsg) {  findItemsError(erFindItemsRequest, aCode, aMsg);},
-				null);  
-	    
 	    function findItemsOK(erFindItemsRequest, aIds){
 	    	that.globalFunctions.LOG("findItemsOK: Fount items: " + aIds.length ); 
 	    	if( aIds.length > 0 ){  
@@ -693,6 +688,18 @@ rtews.prototype = {
 	    function findItemsError(erFindItemsRequest, aCode, aMsg){
 	        that.globalFunctions.LOG("findItemsError:  aCode:" + aCode + " aMsg: " +  aMsg ); 
 	    }  
+	    
+	    var tmpObject = new erFindItemsRequest(
+				{user: this.user, 
+				mailbox: this.mailbox,
+				serverUrl: this.serverUrl, 
+				actionStart: Date.now(),
+				folderID : folder.id ,
+				messageId: messageId, }, 
+				function(erFindItemsRequest, aIds) {  findItemsOK(erFindItemsRequest, aIds);}, 
+				function(erFindItemsRequest, aCode, aMsg) {  findItemsError(erFindItemsRequest, aCode, aMsg);},
+				null);  
+	     
 	},
 	/*
 	 * Update Mail item with category
@@ -791,7 +798,7 @@ rtews.removeAllMessageTagsPostEwsUpdate = function(msgHdr) {
     // keeping other keywords like (non)junk intact.
 
     for (var i = 0; i < selectedMessages.length; ++i) {
-        var msgHdr = selectedMessages[i];
+        msgHdr = selectedMessages[i];
         msgHdr.label = 0;
         // remove legacy label
         if (prevHdrFolder != msgHdr.folder) {
@@ -827,7 +834,7 @@ rtews.toggleMessageTagPostEwsUpdate = function(key, addKey,msgHdr) {
     // better, but nsIMsgDBView doesn't handle commands with arguments,
     // and (un)tag takes a key argument.
     for (var i = 0; i < selectedMessages.length; ++i) {
-        var msgHdr = selectedMessages[i];
+          msgHdr = selectedMessages[i];
 
         if (msgHdr.label) {
             // Since we touch all these messages anyway, migrate the label now.
@@ -920,12 +927,12 @@ function rtewsObj(identity){
 } 
 
 function removeDuplicateAccount(identities){ 
-	dump("\nrtews:removeDuplicateAccount: " + identities.length + 	identities[0].email  );
+	dump("\nrtews:removeDuplicateAccount: " + identities.length );
  
 	if( identities.length > 0 ){
 		var newidentities = [];
 	    
-		function find(arr, key, val) { //Find array element which has a key value of val 
+		find = function(arr, key, val) { //Find array element which has a key value of val 
 		  for (var ai, i = arr.length; i--;){
 		    if ((ai = arr[i]) && ai[key] == val){
 		      return true;}
@@ -985,7 +992,7 @@ function getAllAccounts(){
 	         				if(calAccount){
 	         					enabled = true;
 	         				} 
-	         				dump("\mrtews:Fullname " + identity.fullName);
+	         				dump("\mrtews: Fullname " + identity.fullName);
 
 	         				var details = null;
 		     				if(calAccount){
@@ -1012,7 +1019,9 @@ function getAllAccounts(){
 		                	  	"ewsUrl":null,};
 		     				} 
 	         				 
-	         				_accounts.push(details);  
+		     				if( details.enabled == true){
+		     					_accounts.push(details);  
+		     				}
 	          			} 
 	          }
 	    	  
@@ -1032,7 +1041,8 @@ function getAllAccounts(){
 	     			let identities = account.identities;
 	     			for (let index=0; index < identities.length; index++) {
 	     				let identity = identities.queryElementAt(index, Ci.nsIMsgIdentity);
- 	     				var calAccount = getCalendarPref(identity.email); 
+ 	     				let calAccount = getCalendarPref(identity.email); 
+ 	     				 	     					     				
 	     				let enabled = false;
 	     				let details = null;
 	     				if(calAccount){
@@ -1045,7 +1055,8 @@ function getAllAccounts(){
 		                	  	"name":identity.fullName,
 		                	  	"domain":calAccount.getCharPref("ecDomain"),
 		                 	  	"enabled":enabled,
-		                	  	"ewsUrl":calAccount.getCharPref("ecServer"),};
+		                	  	"ewsUrl":calAccount.getCharPref("ecServer"),
+		                	  	"prefs" : calAccount ,};
 	     				} 
 	     				else{  
  	     				  details = {
@@ -1056,9 +1067,13 @@ function getAllAccounts(){
 	                	  	"name":identity.fullName,
 	                	  	"domain":null,
 	                 	  	"enabled":enabled,
-	                	  	"ewsUrl":null,};
+	                	  	"ewsUrl":null,
+	                	  	"prefs" : null ,};
 	     				} 
-	     				_accounts.push(details); 
+	     				
+	     				if( details.enabled == true ){
+	     					_accounts.push(details);  
+	     				} 
  	      			}  
 		 		} 
  		 		 
@@ -1131,13 +1146,18 @@ function getCalendarPref(aEmail){
 		
 			if( cal.mailbox == aEmail ){  
 				try{
-					return Cc["@mozilla.org/preferences-service;1"]
+					var calPref =  Cc["@mozilla.org/preferences-service;1"]
 					            .getService(Ci.nsIPrefService)
 					            .getBranch("extensions.exchangecalendar@extensions.1st-setup.nl."+  cal.id +".");
-				}catch(e){
-					dump("e"+e);
-					}
-				break;
+					
+					if( calPref.getCharPref("ecFolderbase") == "calendar" ){ 
+						return calPref;
+					} 
+					
+				}
+				catch(e){
+					dump("\nrtews: e2 "+e);
+				}
 			}
 		}
 	} 

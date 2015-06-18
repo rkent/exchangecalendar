@@ -87,16 +87,17 @@ var globalStart = new Date().getTime();
 var tmpActivityManager = Cc["@mozilla.org/activity-manager;1"];
 
 if (tmpActivityManager) {
-	Cc["@1st-setup.nl/global/functions;1"].getService(Ci.mivFunctions).LOG("-- ActivityManger available. Enabeling it.");
-	const nsIAP = Ci.nsIActivityProcess;  
-	const nsIAE = Ci.nsIActivityEvent;  
-	const nsIAM = Ci.nsIActivityManager;
-
-	var gActivityManager = Cc["@mozilla.org/activity-manager;1"].getService(nsIAM);  
+	Cc["@1st-setup.nl/global/functions;1"].getService(Ci.mivFunctions).LOG("-- ActivityManager available. Enabling it."); 
 }
 else {
-	Cc["@1st-setup.nl/global/functions;1"].getService(Ci.mivFunctions).LOG("-- ActivityManger not available.");
+	Cc["@1st-setup.nl/global/functions;1"].getService(Ci.mivFunctions).LOG("-- ActivityManager not available.");
 }
+
+const nsIAP =  Ci.nsIActivityProcess;  
+const nsIAE =  Ci.nsIActivityEvent;  
+const nsIAM = Ci.nsIActivityManager;
+
+var gActivityManager = Cc["@mozilla.org/activity-manager;1"].getService(nsIAM);  
 
 const fieldPathMap = {
 	'ActualWork'			: 'task',
@@ -163,6 +164,7 @@ const fieldPathMap = {
 	'IsTeamTask'			: 'task',
 	'IsUnmodified'			: 'item',
 	'ItemClass'			: 'item',
+	'messageId'			: 'item', 
 	'ItemId'			: 'item',
 	'LastModifiedName'		: 'item',
 	'LastModifiedTime'		: 'item',
@@ -3065,7 +3067,7 @@ calExchangeCalendar.prototype = {
 			return true;
 		}
 
-		return null;false;
+		return false;
 	},
 
 	getExceptions: function _getExceptions(aRecurrenceItems)
@@ -3177,7 +3179,10 @@ calExchangeCalendar.prototype = {
 
 		if (this.firstrun) {
 			this.firstrun = false; 
-
+			
+			//Add Prvider for busy free information for  invite attendees etc.
+			getFreeBusyService().addProvider(this);
+			
 			// The first thing we want to do is check the folderbase and folderpath for their id & changekey.
 			// It might have changed between restarts.
 			this.checkFolderPath();
@@ -5890,6 +5895,15 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 			return;
 		}
 
+		if( doNotCheckCache === undefined ){
+			if( this.useOfflineCache ){
+				doNotCheckCache = false;
+			}
+			else{
+				doNotCheckCache = true;
+			}
+		}
+		
 		// Removed Single/Master items in the lists which we already have in memory
 		var newIdList = new Array();
 //dump("     findCalendarItemsOK: aIds.length:"+aIds.length+"\n");
@@ -6043,7 +6057,7 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 
 	},
 	
-	findTaskItemsOK: function _findTaskItemsOK(erFindTaskItemsRequest, aIds)
+	findTaskItemsOK: function _findTaskItemsOK(erFindTaskItemsRequest, aIds, doNotCheckCache)
 	{
  		if (this.debug) this.logInfo("findTaskItemsOK: aIds.length:"+aIds.length);
 		this.saveCredentials(erFindTaskItemsRequest.argument);
@@ -6052,14 +6066,41 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 		if (aIds.length == 0) {
 			return;
 		}
-       		var self = this;
-
+		
+		if( doNotCheckCache === undefined ){
+			if( this.useOfflineCache ){
+				doNotCheckCache = false;
+			}
+			else{
+				doNotCheckCache = true;
+			}
+		}
+		
+		// Removed Single/Master items in the lists which we already have in memory
+		var newIdList = new Array();
+//dump("     findCalendarItemsOK: aIds.length:"+aIds.length+"\n");
+		for each(var item in aIds) {
+			if (!doNotCheckCache) {
+				var inItemCache = ((this.itemCacheById[item.Id]) && (this.itemCacheById[item.Id].changeKey == item.ChangeKey));
+				if ((!inItemCache) && (this.useOfflineCache)) {
+					inItemCache = (this.itemIsInOfflineCache(item.Id) == item.ChangeKey);
+				}
+ 			}
+			else {
+				var inItemCache = false;
+ 			}
+ 			if ((!inItemCache)) {
+				newIdList.push(item);
+			}
+		}
+ 
+   		var self = this; 
 		this.addToQueue( erGetItemsRequest, 
 			{user: this.user, 
 			 mailbox: this.mailbox,
 			 folderBase: this.folderBase,
 			 serverUrl: this.serverUrl,
-			 ids: aIds,
+			 ids: newIdList,
 			 folderID: this.folderID,
 			 changeKey: this.changeKey,
 			 folderClass: this.folderClass,
@@ -8795,7 +8836,7 @@ else {
 					.get("ProfD", Components.interfaces.nsIFile);
 			this.dbFile.append("exchange-data");
 			if ( !this.dbFile.exists() || !this.dbFile.isDirectory() ) {
-				this.dbFile.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, 0777);  
+				this.dbFile.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, parseInt("0777", 8));  
 			}
 			
 			this.dbFile.append(this.id+".offlineCache.sqlite");
@@ -9382,7 +9423,7 @@ else {
 				handleResult: function _handleResult(aResultSet) {
 					if (self.debug) self.logInfo("Found item in offline Cache.");
 					var row;
-					while (row = aResultSet.getNextRow()) {
+					while ( row = aResultSet.getNextRow() ) {
 
 						if (row) {
 							if (row.getResultByName('itemcount') > 0) {
@@ -10424,7 +10465,7 @@ dump("getOccurrencesFromOfflineCache: found:"+result.length+"\n");
 				.get("ProfD", Components.interfaces.nsIFile);
 		file.append("exchange-data");
 		if ( !file.exists() || !file.isDirectory() ) {
-			file.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, 0777);  
+			file.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, parseInt("0777", 8));  
 		}
 
 		file.append(this.id+"."+aFilename);
@@ -10437,7 +10478,7 @@ dump("getOccurrencesFromOfflineCache: found:"+result.length+"\n");
 
 		var foStream = Components.classes["@mozilla.org/network/file-output-stream;1"].  
 				 createInstance(Components.interfaces.nsIFileOutputStream);  
-		foStream.init(file, 0x02 | 0x08 | 0x20, 0777, 0);  
+		foStream.init(file, 0x02 | 0x08 | 0x20, parseInt("0777", 8), 0);  
 
 		var converter = Components.classes["@mozilla.org/intl/converter-output-stream;1"].
 				createInstance(Components.interfaces.nsIConverterOutputStream);
