@@ -3368,12 +3368,14 @@ dump("Error2:"+err+" | "+exchGlobalFunctions.STACK()+"\n");
 
 	checkAlarmChange: function _checkAlarmChange(updates)
 	{
+	//	dump("\ncheckAlarmChange:  Alarm was changed: " +  ".\n");
+
 		var reminderIsSetChanged = undefined;
 		var newReminderMinutesBeforeStart = undefined;
 		this.reminderMinutesBeforeStart; // To have is initialized.
 		// Alarm
 		if (this._newAlarm !== undefined) {
-			dump("checkAlarmChange:"+this.title+ ",  Alarm was changed: " + this._newAlarm+ ".\n");
+		//	dump("checkAlarmChange:"+this.title+ ",  Alarm was changed: " + this._newAlarm+ ".\n");
 			// Alarm was changed.
 			if (this._newAlarm === null) {
 				// Alarm was removed.
@@ -3532,9 +3534,9 @@ dump("Error2:"+err+" | "+exchGlobalFunctions.STACK()+"\n");
 		// Alarm snooze or dismiss
 		if (typeof this._newXMozSnoozeTime !==  undefined ) {
 //dump("checkAlarmChange: this._newXMozSnoozeTime was set to:"+this._newXMozSnoozeTime+", newReminderMinutesBeforeStart="+newReminderMinutesBeforeStart+"\n");
-			dump("\ncheckAlarmChange: snoozetime " + this.__newXMozSnoozeTime ); 
+		//	dump("\ncheckAlarmChange: snoozetime " + this. _newXMozSnoozeTime ); 
 			if ((this._newXMozSnoozeTime === null ) && (newReminderMinutesBeforeStart !== true)) {
-				dump("\ncheckAlarmChange: dismissed " + newReminderMinutesBeforeStart+ ".\n"); 
+			//			dump("\ncheckAlarmChange: dismissed.  .\n"); 
 //dump("checkAlarmChange: We have a change\n");
 				if (this.calendarItemType == "RecurringMaster") {
 					// Find out which occurrence or exception was dismissed
@@ -3544,26 +3546,26 @@ dump("Error2:"+err+" | "+exchGlobalFunctions.STACK()+"\n");
 					}
 					else {
 						if (dismissedItem.calendarItemType == "Exception") {
-							//dump("Dismissed an exception with startDate:"+dismissedItem.startDate+"\n");
+						//	 dump("\ncheckAlarmChange Dismissed an exception with startDate:"+dismissedItem.startDate+"\n");
 							var newException = dismissedItem.clone();
 							newException.deleteProperty("X-MOZ-SNOOZE-TIME-"+this._lastXMozSnoozeTimeNativeId);
 							this.calendar.modifyItem(newException, dismissedItem, null);
 						}
 						else {
-							//dump("Dismissed an occurrence with startDate:"+dismissedItem.startDate+"\n");
+						//	 dump("\ncheckAlarmChange Dismissed an occurrence with startDate:"+dismissedItem.startDate+"\n");
 						}
 
 						var tmpDate = dismissedItem.endDate || dismissedItem.dueDate;
+						var nextOccurrence = null;
+
 						if (tmpDate) {
-							var nextOccurrence = this.recurrenceInfo.getNextOccurrence(tmpDate);
+						//	 nextOccurrence = this.recurrenceInfo.getNextOccurrence(dismissedItem.endDate);
 						}
-						else {
-							var nextOccurrence = null;
-						}
+					 
 						do {
 							if (nextOccurrence) {
 								// We have a next occurrence. Set newSnoozeTime.
-								//dump("We have a next occurrence.\n");
+							//	    dump("\ncheckAlarmChange We have a next occurrence. " + nextOccurrence.startDate+"\n");
 								if (nextOccurrence.reminderIsSet) {
 									//newSnoozeTime = cal.createDateTime(this._newXMozSnoozeTime);
 									if (nextOccurrence.calendarItemType == "Exception") {
@@ -3643,8 +3645,15 @@ dump("Error2:"+err+" | "+exchGlobalFunctions.STACK()+"\n");
 			}
 
 		}
-
-		if (newSnoozeTime) {
+		
+		//dismiss cancelled events ALARM
+		if ( this.isCancelled && (this.className == "mivExchangeEvent") ) {
+			reminderIsSetChanged="false";
+		}
+		
+	//		dump("\ncheckAlarmChange: Final , reminderIsSetChanged: " + reminderIsSetChanged+ " , newSnoozeTime: " + newSnoozeTime + ".\n");   
+		
+ 		if (newSnoozeTime) {
 			newSnoozeTime = newSnoozeTime.getInTimezone(cal.UTC());
 			const MAPI_PidLidReminderSignalTime = "34144";
 
@@ -3654,12 +3663,7 @@ dump("Error2:"+err+" | "+exchGlobalFunctions.STACK()+"\n");
 					  PropertyType: "SystemTime"} );
 		}
 
-		if ( this.isCancelled && (this.className == "mivExchangeEvent") )
-		{
-			reminderIsSetChanged="false";
-		}
- 
-		if (reminderIsSetChanged !== undefined) {
+		if (reminderIsSetChanged ) {
 			this.addSetItemField(updates, "ReminderIsSet", reminderIsSetChanged);
 		}
 	},
