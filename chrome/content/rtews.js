@@ -18,6 +18,7 @@ Cu.import("resource://exchangecalendar/erSubscribe.js");
 Cu.import("resource://exchangecalendar/erGetEvents.js");
 Cu.import("resource://exchangecalendar/erFindItems.js");
 Cu.import("resource://exchangecalendar/erUpdateItem.js");
+Cu.import("resource://exchangecalendar/erUnsubscribe.js");
 
 const eventTypes = ["NewMailEvent","ModifiedEvent","MovedEvent","CopiedEvent","CreatedEvent"]; 
 
@@ -202,14 +203,19 @@ rtews.Tags = {
 function rtews(identity){  
 		this.identity = identity; 
   	   // fixing bug #270 
- 	    
-		if( identity.domain){
- 	    	this.user = identity.domain +"\\"+identity.username ;
- 	    }
- 	    else {
- 	    	this.user = identity.username ;
- 	    }
- 	    
+  
+		if (identity.username.indexOf("@") > -1) {
+				this.user = identity.username ;
+		}
+		else {
+			if (identity.domain == "") {
+					this.user = identity.username ;
+			}
+			else {
+					this.user = identity.domain +"\\"+identity.username ;
+			}
+		}
+		
 	    this.mailbox = identity.email ; 
 	    this.serverUrl = identity.ewsUrl ; 
 	    
@@ -229,17 +235,38 @@ function rtews(identity){
 	   this.prefs = identity.prefs ;
 	   
 	   if( this.prefs ){
-		   this.pollOffset = this.globalFunctions.safeGetIntPref(this.prefs, "syncMailItems.Interval" ,15) * 1000 ;//time for getevents  
+		   this.pollOffset = this.globalFunctions.safeGetIntPref(this.prefs, "syncMailItems.Interval" ,15) * 1000 ;//time for getevents   
+			this.loadBalancer = Cc["@1st-setup.nl/exchange/loadbalancer;1"]  
+			                          .getService(Ci.mivExchangeLoadBalancer); 
 	   }
 	   else{
 		   this.prefs = null;
- 		   this.pollOffset = 15000;//time for getevents 
+ 		   this.pollOffset = 30000;//time for getevents 
 	   }  
 	   
 	   this.subscriptionTimeout = "1440"; 
  }
 
 rtews.prototype = {  
+	/*
+	 *use Calendar queue for xml request
+	 */ 
+	addToQueue: function _addToQueue(aRequest, aArgument, aCbOk, aCbError, aListener)
+	{
+		if ( mivFunctions.safeGetBoolPref(this.prefs, "mailsync.active", false) ==  false ){
+ 			exchangeGlobalFunction("Not adding to queue because we are disabled,  " + this.serverUrl ,this.user);  
+ 			this.Running = false;  
+			return;
+		}
+ 		//if (!aArgument["ServerVersion"]) aArgument["ServerVersion"] = this.exchangeStatistics.getServerVersion(this.serverUrl);
+
+		this.loadBalancer.addToQueue({ calendar: this.prefs,
+				 ecRequest:aRequest,
+				 arguments: aArgument,
+				 cbOk: aCbOk,
+				 cbError: aCbError,
+				 listener: aListener});
+	},
 	/*
 	 * Gets the ItemId element from response of the FindItem SOAP request
 	 *
@@ -248,7 +275,7 @@ rtews.prototype = {
 		exchangeGlobalFunction("Find all the folderd in msgfolderroot,  " + this.serverUrl ,this.user); 
 	    //Call API
  		var self = this;
-		var tmpObject = new  erFindInboxFolderRequest(
+ 		this.addToQueue(  erFindInboxFolderRequest,
 								{user:this.user, 
 								mailbox: this.mailbox,
 								serverUrl:this.serverUrl,
@@ -272,7 +299,7 @@ rtews.prototype = {
 	subscribe: function _subscribe(folders){
 		exchangeGlobalFunction("Trying to subscribe  " ,this.user); 
 	  	var self = this;
-	  	var tmpObject = new erSubscribeRequest(
+	  	this.addToQueue( erSubscribeRequest,
 				   		{user: this.user, 
 				   		mailbox: this.mailbox,
 				   		serverUrl: this.serverUrl,
@@ -296,10 +323,10 @@ rtews.prototype = {
 	},
 	
 	unsubscribe: function _unsubscribe(){ 
-		var that = this;
-		that.Running = true; 
-		      
-		var tmpObject = new erUnsubscribeRequest(
+		exchangeGlobalFunction("Error occured Unsubscribing user.",this.user); 
+		this.Running = false; 
+		var that = this; 
+		this.addToQueue( erUnsubscribeRequest,
 						{user: this.user, 
 						mailbox: this.mailbox,
 						serverUrl: this.serverUrl, 
@@ -312,13 +339,11 @@ rtews.prototype = {
 	},
 	
 	unsubscribeOK: function _unsubscribeOK(erUnsubscribeRequest, aResp){
-		this.Running =false;
 		exchangeGlobalFunction("Unsubscribed user.",this.user);
 	},
 	
 	unsubscribeError: function _unsubscribeError(erUnsubscribeRequest, aCode, aMsg){
-		this.Running =false;
-		exchangeGlobalFunction("unsubscribeError: "+ aMsg);
+ 		exchangeGlobalFunction("unsubscribeError: "+ aMsg);
 	},
 	
 	poll: function _poll() {
@@ -440,7 +465,7 @@ rtews.prototype = {
 	getAndUpdateItems: function _getAndUpdateItems(aIds) { 
 		exchangeGlobalFunction("Received request to update messages,  total items to be requested - " + aIds.length, this.user);  
 		var that = this;   
-		var tmpObject = new erGetItemsRequest(
+		this.addToQueue( erGetItemsRequest,
 				{user: this.user, 
 				 mailbox:  this.mailbox,
 	 			 serverUrl:  this.serverUrl,
@@ -456,7 +481,7 @@ rtews.prototype = {
 		this.Running = true;  
 		var that = this;
 		      
-		var tmpObject = new erGetEventsRequest(
+		this.addToQueue(  erGetEventsRequest,
 						{user: this.user, 
 						mailbox: this.mailbox,
 						serverUrl: this.serverUrl, 
@@ -680,7 +705,7 @@ rtews.prototype = {
 	            continue;
 	        } 
 	        
-	        var tmpObject = new erFindItemsRequest(
+	        this.addToQueue(  erFindItemsRequest,
 					{user: this.user, 
 					mailbox: this.mailbox,
 					serverUrl: this.serverUrl, 
@@ -695,7 +720,7 @@ rtews.prototype = {
 					         	}
 					        	else{
 						    		exchangeGlobalFunction("Syncing tags not finding any items in server for Ids. " + JSON.stringify(messageId), that.user);
-					        	} 
+ 					        	} 
 					}, 
 					function(erFindItemsRequest, aCode, aMsg) { 
 							exchangeGlobalFunction("findItemsError:  aCode:" + aCode + " aMsg: " +  aMsg );  
@@ -725,14 +750,17 @@ rtews.prototype = {
 	     	}
 	    	else{
 	    		exchangeGlobalFunction("Toggle tags not finding any items in server for Ids. " + JSON.stringify(messageId), that.user);
+	    		//when no mail item is find toggle tags locally
+	    		exchangeGlobalFunction("Update tags locally",that.user); 
+	    		rtews.fallBackTagUpdate(msgHdr, identity, toggleType, categories, key, addKey); 
 	    	}
 	    } 
 	    
 	    function findItemsError(erFindItemsRequest, aCode, aMsg){
 	    	exchangeGlobalFunction("findItemsError:  aCode:" + aCode + " aMsg: " +  aMsg ); 
-	    }  
+ 	    }  
 	    
-	    var tmpObject = new erFindItemsRequest(
+	    this.addToQueue( erFindItemsRequest,
 				{user: this.user, 
 				mailbox: this.mailbox,
 				serverUrl: this.serverUrl, 
@@ -774,7 +802,8 @@ rtews.prototype = {
 	  
 		exchangeGlobalFunction("UpdateItem with changes " + changes, this.user);
 	
-	    var tmpObject = new erUpdateItemRequest({user: this.user, 
+		this.addToQueue( erUpdateItemRequest,
+				{user: this.user, 
 				 mailbox: this.mailbox,
 				 folderBase: this.folderBase,
 				 serverUrl: this.serverUrl,
@@ -805,6 +834,18 @@ rtews.prototype = {
     		this.processIdentity();    
 	 },
  };
+
+
+/*
+ * On remote fails
+ */
+rtews.fallBackTagUpdate = function(msgHdr, identity, toggleType, categories, key, addKey){  
+  		if (toggleType == "removeAll") {  
+	        	rtews.removeAllMessageTagsPostEwsUpdate(msgHdr);
+	    } else { 
+		    	rtews.toggleMessageTagPostEwsUpdate(key, addKey, msgHdr);
+	    }  
+};
 
 /*
  * Custom method for remove all tags menuitem 
@@ -923,12 +964,14 @@ rtews.addSyncMenu = function (menuPopup) {
  */
 rtews.getIdentity = function(server) {
     var ids = identities;
-    for (var x = 0, len = ids.length; x < len; x++) {
-        if (ids[x] && ids[x].enabled == true && ids[x].server == server) {
-            return ids[x];
-        }
+    if( ids ){
+	    for (var x = 0, len = ids.length; x < len; x++) {
+	        if (ids[x] && ids[x].enabled == true && ids[x].server == server) {
+	            return ids[x];
+	        }
+	    }
     }
-    return null;
+    return null;    
 };  
 
 //Get all the identities 
@@ -1034,36 +1077,25 @@ function getAllAccounts(){
 	         				var identity = identities.queryElementAt(index, Ci.nsIMsgIdentity);
 	         				var calAccount = getCalendarPref(identity.email);  
 	         				var enabled = false; 
-	         				exchangeGlobalFunction("Account exists  for email address -  " + identity.email);  
+	         				exchangeGlobalFunction("Account exists  for email address -  " + identity.email);   
 	         				
 	         				var details = null;
-		     				if(calAccount){
-		     					enabled = true;
-	 		     				  details = {
-	 				 						"server":account.incomingServer.prettyName,
-	 										"serverURI":account.incomingServer.serverURI,
-	 				                	  	"email":calAccount.getCharPref("ecMailbox"),
-	 				                	  	"username":calAccount.getCharPref("ecUser"),
-	 				                	  	"name":identity.fullName,
-	 				                	  	"domain":calAccount.getCharPref("ecDomain"),
-	 				                 	  	"enabled":enabled,
-	 				                	  	"ewsUrl":calAccount.getCharPref("ecServer"),
-	 				                	  	"prefs" : calAccount ,};
-		     				} 
-		     				else{  
-	 	     				  details = {
-	 	 	 						"server":account.incomingServer.prettyName,
-	 								"serverURI":account.incomingServer.serverURI,
-	 		                	  	"email":null,
-	 		                	  	"username":null,
-	 		                	  	"name":identity.fullName,
-	 		                	  	"domain":null,
-	 		                 	  	"enabled":enabled,
-	 		                	  	"ewsUrl":null,
-	 		                	  	"prefs" : null ,};
-		     				} 
-	         				 
-		     				if( details.enabled == true){
+	         				
+	         				if(calAccount && mivFunctions ){
+	         							enabled =  mivFunctions.safeGetBoolPref(calAccount, "mailsync.active", false) ; 
+				     					details = {
+		 				 						"server":account.incomingServer.prettyName,
+		 										"serverURI":account.incomingServer.serverURI,
+		 				                	  	"email":mivFunctions.safeGetCharPref(calAccount,"ecMailbox"),
+		 				                	  	"username":mivFunctions.safeGetCharPref(calAccount,"ecUser"),
+		 				                	  	"name":identity.fullName,
+		 				                	  	"domain":mivFunctions.safeGetCharPref(calAccount,"ecDomain"),
+		 				                 	  	"enabled":enabled,
+		 				                	  	"ewsUrl":mivFunctions.safeGetCharPref(calAccount,"ecServer"),
+		 				                	  	"prefs" : calAccount ,
+		 				                }; 
+	         				}
+ 		     				if( details.enabled == true){
 		     					_accounts.push(details);  
 		     				}
 	          			} 
@@ -1086,33 +1118,22 @@ function getAllAccounts(){
          				exchangeGlobalFunction("Account exists  for email address -  " + identity.email);   
          				
 	     				let details = null;
-	     				if(calAccount){
-	     					enabled = true;
- 		     				  details = {
-		 						"server":account.incomingServer.prettyName,
-								"serverURI":account.incomingServer.serverURI,
-		                	  	"email":calAccount.getCharPref("ecMailbox"),
-		                	  	"username":calAccount.getCharPref("ecUser"),
-		                	  	"name":identity.fullName,
-		                	  	"domain":calAccount.getCharPref("ecDomain"),
-		                 	  	"enabled":enabled,
-		                	  	"ewsUrl":calAccount.getCharPref("ecServer"),
-		                	  	"prefs" : calAccount ,};
-	     				} 
-	     				else{  
- 	     				  details = {
-	 						"server":account.incomingServer.prettyName,
-							"serverURI":account.incomingServer.serverURI,
-	                	  	"email":null,
-	                	  	"username":null,
-	                	  	"name":identity.fullName,
-	                	  	"domain":null,
-	                 	  	"enabled":enabled,
-	                	  	"ewsUrl":null,
-	                	  	"prefs" : null ,};
-	     				} 
 	     				
-	     				if( details.enabled == true ){
+	    				if(calAccount && mivFunctions ){
+	    					enabled =  mivFunctions.safeGetBoolPref(calAccount, "mailsync.active", false) ;
+	     					details = {
+				 						"server":account.incomingServer.prettyName,
+										"serverURI":account.incomingServer.serverURI,
+				                	  	"email":mivFunctions.safeGetCharPref(calAccount,"ecMailbox"),
+				                	  	"username":mivFunctions.safeGetCharPref(calAccount,"ecUser"),
+				                	  	"name":identity.fullName,
+				                	  	"domain":mivFunctions.safeGetCharPref(calAccount,"ecDomain"),
+				                 	  	"enabled":enabled,
+				                	  	"ewsUrl":mivFunctions.safeGetCharPref(calAccount,"ecServer"),
+				                	  	"prefs" : calAccount ,
+				                }; 
+	    				}
+ 	     				if( details.enabled == true ){
 	     					_accounts.push(details);  
 	     				} 
  	      			}  
