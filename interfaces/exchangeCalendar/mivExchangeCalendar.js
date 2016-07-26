@@ -5531,6 +5531,9 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 		var input= { item: aItem, 
 			     response: tmpResponse,
 			     answer: "",
+				 proposeStart: "",
+				 proposeEnd: "",
+				 serverUrl: this.serverUrl,
 			     bodyText: ""};
 
 		if (preInput.response == "edit") {
@@ -5547,7 +5550,7 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 					"chrome,titlebar,toolbar,centerscreen,dialog,modal=yes,resizable=yes",
 					input); 
 			}
-
+						
 			if (input.answer != "send") {
 				if (this.debug) this.logInfo("User canceled invitationDialog.");
 				return false;
@@ -5561,8 +5564,19 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 				messageDisposition = "SaveOnly";
 			}
 		}
-		if (this.debug) this.logInfo("  -------------- messageDisposition="+messageDisposition);
-
+		if (this.debug) this.logInfo("  -------------- messageDisposition="+messageDisposition); 
+	
+		var proposeStart = this.tryToSetDateValue(input.proposeStart,"");
+		var proposeEnd   = this.tryToSetDateValue(input.proposeEnd,""); 
+	 	var proposeNewTime = false;
+		
+		input.proposeStart = cal.toRFC3339(proposeStart.getInTimezone(this.globalFunctions.ecUTC()));
+		input.proposeEnd   = cal.toRFC3339(proposeEnd.getInTimezone(  this.globalFunctions.ecUTC())); 
+		
+		if( input.proposeStart && input.proposeEnd ){
+			proposeNewTime = true;
+		}
+	 
 		var self = this;
 		this.addToQueue( erSendMeetingResponsRequest,
 			{user: this.user, 
@@ -5574,6 +5588,9 @@ if (this.debug) this.logInfo(" ;;;; rrule:"+rrule.icalProperty.icalString);
 			 changeKey: this.changeKey,
 			 response: input.response,
 			 bodyText: input.bodyText,
+			 proposeStart: input.proposeStart,
+			 proposeEnd: input.proposeEnd,
+			 proposeNewTime: proposeNewTime,
 			 senderMailbox: this.mailbox,
 	 		 actionStart: Date.now(),
 			 itemType: aItemType,

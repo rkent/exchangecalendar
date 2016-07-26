@@ -35,6 +35,8 @@
  * ***** BEGIN LICENSE BLOCK *****/
 
 var Cu = Components.utils;
+var Ci = Components.interfaces;
+var Cc = Components.classes;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
@@ -70,7 +72,9 @@ function erSendMeetingResponsRequest(aArgument, aCbOk, aCbError, aListener)
 	this.response = aArgument.response;
 	this.item = aArgument.item;
 	this.messageDisposition = aArgument.messageDisposition;
-
+	this.pstart = aArgument.proposeStart;
+	this.pend = aArgument.proposeEnd;
+	this.proposeNewTime = aArgument.proposeNewTime;
 	this.isRunning = true;
 	this.execute();
 }
@@ -115,25 +119,36 @@ erSendMeetingResponsRequest.prototype = {
 
 		if (this.senderMailbox) {
 			r.addChildTag("Sender", "nsTypes", null).addChildTag("Mailbox", "nsTypes", null).addChildTag("EmailAddress", "nsTypes", this.senderMailbox);
-		}
-
+		} 
+		
 		var referenceItemId = r.addChildTag("ReferenceItemId", "nsTypes", null);
 		referenceItemId.setAttribute("Id", this.item.id);
 		referenceItemId.setAttribute("ChangeKey", this.item.changeKey);
+		
+		this.exchangeStatistics = Cc["@1st-setup.nl/exchange/statistics;1"]
+				.getService(Ci.mivExchangeStatistics);
+				
 
+		if (this.exchangeStatistics.getServerVersion(this.serverUrl).indexOf("Exchange2013") > -1) {  
+				if( this.proposeNewTime == true ){
+					r.addChildTag("ProposedStart", "nsTypes", this.pstart);   
+					r.addChildTag("ProposedEnd", "nsTypes", this.pend);
+				}
+		}
+		
 		req.addChildTag("Items", "nsMessages", null).addChildTagObject(r);
 		r = null;
 
 		this.parent.xml2jxon = true;
 
-		//exchWebService.commonFunctions.LOG("erSendMeetingResponsRequest.execute>"+String(this.parent.makeSoapMessage(req)));
-                this.parent.sendRequest(this.parent.makeSoapMessage(req), this.serverUrl);
+	//	exchWebService.commonFunctions.LOG("erSendMeetingResponsRequest.execute>"+String(req));
+		this.parent.sendRequest(this.parent.makeSoapMessage(req), this.serverUrl);
 		req = null;
 	},
 
 	onSendOk: function _onSendOk(aExchangeRequest, aResp)
 	{
-		//exchWebService.commonFunctions.LOG("erSendMeetingResponsRequest.onSendOk: "+String(aResp)+"\n");
+	//	exchWebService.commonFunctions.LOG("erSendMeetingResponsRequest.onSendOkxxxxxxxxxx : "+String(aResp)+"\n");
 
 		var rm = aResp.XPath("/s:Envelope/s:Body/m:CreateItemResponse/m:ResponseMessages/m:CreateItemResponseMessage[@ResponseClass='Success']");
 		if (rm.length == 0) {

@@ -22,3 +22,6 @@
 
 
 
+<!ENTITY label.proposenewtime.title "Propose new time (>= Exchange2013)">
+<!ENTITY label.proposenewtime.start "Start time">
+<!ENTITY label.proposenewtime.end "End time">
