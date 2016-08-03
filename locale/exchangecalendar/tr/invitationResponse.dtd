@@ -5,7 +5,7 @@
 
 <!ENTITY label.calendarName “Takvim:”>
 <!ENTITY label.itemTitle “Konu:”>
-<!ENTITY label.itemStart “Başlangıç zamanı:”>
+<!ENTITY label.itemStart “Başlama zamanı:”>
 <!ENTITY label.itemResponse "Yanıtın:”>
 <!ENTITY label.meetingOrganiser "Düzenleyen:”>
 
@@ -17,6 +17,6 @@
 
 
 
-<!ENTITY label.proposenewtime.title "Propose new time (>= Exchange2013)">
-<!ENTITY label.proposenewtime.start "Start time">
-<!ENTITY label.proposenewtime.end "End time">
+<!ENTITY label.proposenewtime.title "Yeni bir zaman öner (>= Exchange2013)">
+<!ENTITY label.proposenewtime.start "Başlama zamanı">
+<!ENTITY label.proposenewtime.end "Sona erme zamanı">
