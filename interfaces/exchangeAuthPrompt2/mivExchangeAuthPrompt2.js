@@ -214,8 +214,7 @@ mivExchangeAuthPrompt2.prototype = {
 						};*/
 
 			this.logInfo("getPassword: Going to ask user to provide a new password.");
-
-			this.details[aURL].ntlmCount = 0;
+ 
 			var answer = this.getCredentials(username, aURL);
 
 			if (answer.result) {
