@@ -1,3 +1,5 @@
+## RKENT 2018-06-20 THIS REPOSITORY IS OBSOLETE
+
 ##Exchange EWS Provider
 =====================
 Thank you for checking out Ericsson's Exchange EWS Provider. Ericsson and the Ericsson QA team are grateful for the help and hard work of many [contributors][contributors] like yourself.
